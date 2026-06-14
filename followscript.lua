@@ -380,7 +380,8 @@ local function flingPlayer(player)
 	bodyVelocity.Parent = root
 	Debris:AddItem(bodyVelocity, 0.2)
 
-	task.delay(0.25, function()
+	-- Wait 5 seconds instead of 0.25 so you fly with them
+	task.delay(5, function()
 		-- Return back underground after the fling is done
 		followOffset = Vector3.new(0, -7, 0)
 		
