@@ -11,12 +11,10 @@ local Debris = game:GetService("Debris")
 local localPlayer = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
--- Made this a variable so we can change it during the fling
 local followOffset = Vector3.new(0, -7, 0)
 local HOVER_RADIUS = 7
 local RAY_DISTANCE = 2000
 local CLICK_COOLDOWN = 0.2
-local FLING_POWER = 500000
 
 local followTarget = nil
 local hoverTarget = nil
@@ -27,6 +25,7 @@ local invincibleConnections = {}
 local savedAnchored = nil
 local savedTransparency = {}
 local lastClickTime = 0
+local isFlinging = false -- NEW: Tracks if we are currently flinging
 
 local screenGui = nil
 local menuFrame = nil
@@ -55,47 +54,32 @@ local function getHumanoid(character)
 end
 
 local function getPlayerFromInstance(instance)
-	if not instance then
-		return nil
-	end
-
+	if not instance then return nil end
 	local model = instance:FindFirstAncestorOfClass("Model")
-	if not model then
-		return nil
-	end
-
+	if not model then return nil end
 	return Players:GetPlayerFromCharacter(model)
 end
 
 local function getOtherCharacterModels()
 	local models = {}
-
 	for _, player in Players:GetPlayers() do
 		if player ~= localPlayer and player.Character then
 			table.insert(models, player.Character)
 		end
 	end
-
 	return models
 end
 
 local function getMouseRay()
-	if not camera then
-		camera = workspace.CurrentCamera
-	end
-	if not camera then
-		return nil
-	end
-
+	if not camera then camera = workspace.CurrentCamera end
+	if not camera then return nil end
 	local mousePos = UserInputService:GetMouseLocation()
 	return camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 end
 
 local function getPlayerFromRaycast(ray)
 	local models = getOtherCharacterModels()
-	if #models == 0 then
-		return nil
-	end
+	if #models == 0 then return nil end
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
@@ -106,7 +90,6 @@ local function getPlayerFromRaycast(ray)
 	if result then
 		return getPlayerFromInstance(result.Instance)
 	end
-
 	return nil
 end
 
@@ -114,14 +97,12 @@ local function getPlayerFromLegacyMouse()
 	local ok, target = pcall(function()
 		return localPlayer:GetMouse().Target
 	end)
-
 	if ok and target then
 		local player = getPlayerFromInstance(target)
 		if player and player ~= localPlayer then
 			return player
 		end
 	end
-
 	return nil
 end
 
@@ -135,11 +116,9 @@ local function getPlayerClosestToRay(ray)
 			if root then
 				local offset = root.Position - ray.Origin
 				local depth = offset:Dot(ray.Direction)
-
 				if depth > 0 and depth < RAY_DISTANCE then
 					local closestPoint = ray.Origin + ray.Direction * depth
 					local distance = (root.Position - closestPoint).Magnitude
-
 					if distance < bestDistance then
 						bestDistance = distance
 						bestPlayer = player
@@ -148,46 +127,28 @@ local function getPlayerClosestToRay(ray)
 			end
 		end
 	end
-
 	return bestPlayer
 end
 
 local function getPlayerUnderMouse()
 	local ray = getMouseRay()
-	if not ray then
-		return getPlayerFromLegacyMouse()
-	end
-
-	return getPlayerFromRaycast(ray)
-		or getPlayerFromLegacyMouse()
-		or getPlayerClosestToRay(ray)
+	if not ray then return getPlayerFromLegacyMouse() end
+	return getPlayerFromRaycast(ray) or getPlayerFromLegacyMouse() or getPlayerClosestToRay(ray)
 end
 
 local function destroyHighlight(highlight)
-	if highlight then
-		pcall(function()
-			highlight:Destroy()
-		end)
-	end
+	if highlight then pcall(function() highlight:Destroy() end) end
 end
 
 local function setHoverHighlight(player)
-	if hoverTarget == player then
-		return
-	end
-
+	if hoverTarget == player then return end
 	destroyHighlight(hoverHighlight)
 	hoverHighlight = nil
 	hoverTarget = player
 
-	if not player then
-		return
-	end
-
+	if not player then return end
 	local character = getCharacter(player)
-	if not character then
-		return
-	end
+	if not character then return end
 
 	hoverHighlight = Instance.new("Highlight")
 	hoverHighlight.Name = "ClickFollowHover"
@@ -204,14 +165,9 @@ local function setFollowHighlight(player)
 	destroyHighlight(followHighlight)
 	followHighlight = nil
 
-	if not player then
-		return
-	end
-
+	if not player then return end
 	local character = getCharacter(player)
-	if not character then
-		return
-	end
+	if not character then return end
 
 	followHighlight = Instance.new("Highlight")
 	followHighlight.Name = "ClickFollowTarget"
@@ -247,160 +203,68 @@ end
 
 local function getGuiParent()
 	local ok, result = pcall(function()
-		if gethui then
-			return gethui()
-		end
+		if gethui then return gethui() end
 	end)
-
-	if ok and result then
-		return result
-	end
-
+	if ok and result then return result end
 	return localPlayer:WaitForChild("PlayerGui")
 end
 
 local function isMouseOverMenu()
-	if not menuFrame or not menuFrame.Visible then
-		return false
-	end
-
+	if not menuFrame or not menuFrame.Visible then return false end
 	local mousePos = UserInputService:GetMouseLocation()
 	local inset = GuiService:GetGuiInset()
 	local adjustedY = mousePos.Y - inset.Y
 	local pos = menuFrame.AbsolutePosition
 	local size = menuFrame.AbsoluteSize
-
-	return mousePos.X >= pos.X
-		and mousePos.X <= pos.X + size.X
-		and adjustedY >= pos.Y
-		and adjustedY <= pos.Y + size.Y
+	return mousePos.X >= pos.X and mousePos.X <= pos.X + size.X and adjustedY >= pos.Y and adjustedY <= pos.Y + size.Y
 end
 
 local function makeDraggable(frame, handle)
-	local dragging = false
-	local dragStart = nil
-	local startPos = nil
+	local dragging, dragStart, startPos = false, nil, nil
 
 	track(handle.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-			return
-		end
-
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 		dragging = true
 		dragStart = input.Position
 		startPos = frame.Position
 	end))
 
 	track(UserInputService.InputChanged:Connect(function(input)
-		if not dragging or input.UserInputType ~= Enum.UserInputType.MouseMovement then
-			return
-		end
-
+		if not dragging or input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
 		local delta = input.Position - dragStart
 		frame.Position = UDim2.new(
-			startPos.X.Scale,
-			startPos.X.Offset + delta.X,
-			startPos.Y.Scale,
-			startPos.Y.Offset + delta.Y
+			startPos.X.Scale, startPos.X.Offset + delta.X,
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
 		)
 	end))
 
 	track(UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			dragging = false
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
 	end))
 end
 
-local function claimNetworkPart(part)
-	pcall(function()
-		if sethiddenproperty then
-			sethiddenproperty(part, "NetworkOwnershipRule", Enum.NetworkOwnershipRule.Manual)
-		end
-	end)
-
-	pcall(function()
-		if setnetworkowner then
-			setnetworkowner(part, localPlayer)
-		end
-	end)
-
-	pcall(function()
-		part:SetNetworkOwner(localPlayer)
-	end)
-end
-
 local function flingPlayer(player)
+	if isFlinging then return end
+	
 	local character = getCharacter(player)
-	if not character then
-		return
-	end
-
 	local root = getRootPart(character)
-	local humanoid = getHumanoid(character)
-	if not root or not humanoid then
-		return
-	end
+	if not character or not root then return end
 
-	-- Move our body directly up to the target to ensure network ownership claims succeed
+	isFlinging = true
 	followOffset = Vector3.zero
-
-	for _, part in character:GetDescendants() do
-		if part:IsA("BasePart") then
-			claimNetworkPart(part)
-			part.CanCollide = false
-		end
-	end
-
-	local flingVelocity = Vector3.new(
-		math.random(-FLING_POWER, FLING_POWER),
-		FLING_POWER * 1.2,
-		math.random(-FLING_POWER, FLING_POWER)
-	)
-
-	task.spawn(function()
-		for _ = 1, 8 do
-			if not root.Parent then
-				break
-			end
-			root.AssemblyLinearVelocity = flingVelocity
-			root.AssemblyAngularVelocity = Vector3.new(
-				math.random(-8000, 8000),
-				math.random(-8000, 8000),
-				math.random(-8000, 8000)
-			)
-			task.wait()
-		end
-	end)
-
-	local bodyVelocity = Instance.new("BodyVelocity")
-	bodyVelocity.Name = "ClickFollowFling"
-	bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-	bodyVelocity.Velocity = flingVelocity
-	bodyVelocity.Parent = root
-	Debris:AddItem(bodyVelocity, 0.2)
+	print("[ClickFollow] Flinging:", player.Name)
 
 	-- Wait 5 seconds instead of 0.25 so you fly with them
 	task.delay(5, function()
-		-- Return back underground after the fling is done
-		followOffset = Vector3.new(0, -7, 0)
-		
-		if character and character.Parent then
-			for _, part in character:GetDescendants() do
-				if part:IsA("BasePart") then
-					part.CanCollide = true
-				end
-			end
+		if isFlinging then
+			isFlinging = false
+			followOffset = Vector3.new(0, -7, 0)
 		end
 	end)
-
-	print("[ClickFollow] Flung:", player.Name)
 end
 
 local function createMenu()
-	if screenGui then
-		return
-	end
+	if screenGui then return end
 
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "ClickFollowGUI"
@@ -503,9 +367,7 @@ local function showMenu(player)
 end
 
 local function hideMenu()
-	if menuFrame then
-		menuFrame.Visible = false
-	end
+	if menuFrame then menuFrame.Visible = false end
 end
 
 local function destroyMenu()
@@ -526,9 +388,7 @@ end
 
 local function protectCharacter(character)
 	local humanoid = getHumanoid(character)
-	if not humanoid then
-		return
-	end
+	if not humanoid then return end
 
 	humanoid.BreakJointsOnDeath = false
 	humanoid.Health = humanoid.MaxHealth
@@ -549,15 +409,10 @@ end
 
 local function setInvincible(enabled)
 	clearInvincible()
-
-	if not enabled then
-		return
-	end
+	if not enabled then return end
 
 	local character = getCharacter(localPlayer)
-	if character then
-		protectCharacter(character)
-	end
+	if character then protectCharacter(character) end
 
 	trackInvincible(localPlayer.CharacterAdded:Connect(function(newCharacter)
 		if followTarget then
@@ -572,9 +427,7 @@ local function restoreMovement()
 	local root = getRootPart(character)
 	local humanoid = getHumanoid(character)
 
-	if character then
-		showCharacter(character)
-	end
+	if character then showCharacter(character) end
 
 	if root and savedAnchored ~= nil then
 		root.Anchored = savedAnchored
@@ -583,13 +436,13 @@ local function restoreMovement()
 		root.Anchored = false
 	end
 
-	if humanoid then
-		humanoid.PlatformStand = false
-	end
+	if humanoid then humanoid.PlatformStand = false end
 end
 
 local function stopFollowing()
 	followTarget = nil
+	isFlinging = false
+	followOffset = Vector3.new(0, -7, 0)
 	setFollowHighlight(nil)
 	setInvincible(false)
 	hideMenu()
@@ -597,16 +450,14 @@ local function stopFollowing()
 end
 
 local function startFollowing(player)
-	if followTarget == player then
-		return
-	end
+	if followTarget == player then return end
 
 	if followTarget then
 		restoreMovement()
 		setInvincible(false)
 	end
 
-	-- Always ensure you start from underground when switching targets
+	isFlinging = false
 	followOffset = Vector3.new(0, -7, 0)
 	
 	followTarget = player
@@ -616,24 +467,15 @@ local function startFollowing(player)
 
 	local character = getCharacter(localPlayer)
 	local root = getRootPart(character)
-	if root then
-		savedAnchored = root.Anchored
-	end
-	if character then
-		hideCharacter(character)
-	end
+	if root then savedAnchored = root.Anchored end
+	if character then hideCharacter(character) end
 
 	print("[ClickFollow] Following:", player.Name, "| Alt = let go")
 end
 
 local function handleClick()
-	if isMouseOverMenu() then
-		return
-	end
-
-	if tick() - lastClickTime < CLICK_COOLDOWN then
-		return
-	end
+	if isMouseOverMenu() then return end
+	if tick() - lastClickTime < CLICK_COOLDOWN then return end
 	lastClickTime = tick()
 
 	local clickedPlayer = getPlayerUnderMouse()
@@ -643,47 +485,33 @@ local function handleClick()
 end
 
 local function handleRelease()
-	if not followTarget then
-		return
-	end
-
+	if not followTarget then return end
 	stopFollowing()
 	print("[ClickFollow] Let go (Alt)")
 end
 
 local function hookCharacter(player)
-	track(player.CharacterAdded:Connect(function(character)
-		track(character.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				if hoverTarget == player then
-					setHoverHighlight(nil)
-				end
-				if followTarget == player then
-					stopFollowing()
-					print("[ClickFollow] Target left or died")
-				end
+	local function onAncestryChanged(_, parent)
+		if parent == nil then
+			if hoverTarget == player then setHoverHighlight(nil) end
+			if followTarget == player then
+				stopFollowing()
+				print("[ClickFollow] Target left or died")
 			end
-		end))
+		end
+	end
+
+	track(player.CharacterAdded:Connect(function(character)
+		track(character.AncestryChanged:Connect(onAncestryChanged))
 	end))
 
 	if player.Character then
-		track(player.Character.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				if hoverTarget == player then
-					setHoverHighlight(nil)
-				end
-				if followTarget == player then
-					stopFollowing()
-					print("[ClickFollow] Target left or died")
-				end
-			end
-		end))
+		track(player.Character.AncestryChanged:Connect(onAncestryChanged))
 	end
 end
 
 track(RunService.RenderStepped:Connect(function()
 	local hoveredPlayer = getPlayerUnderMouse()
-
 	if followTarget and hoveredPlayer == followTarget then
 		setHoverHighlight(nil)
 	else
@@ -692,9 +520,7 @@ track(RunService.RenderStepped:Connect(function()
 end))
 
 track(RunService.Heartbeat:Connect(function()
-	if not followTarget then
-		return
-	end
+	if not followTarget then return end
 
 	local myCharacter = getCharacter(localPlayer)
 	local targetCharacter = getCharacter(followTarget)
@@ -702,34 +528,48 @@ track(RunService.Heartbeat:Connect(function()
 	local targetRoot = getRootPart(targetCharacter)
 	local humanoid = getHumanoid(myCharacter)
 
-	if not myCharacter or not myRoot or not targetRoot or not humanoid then
-		return
-	end
+	if not myCharacter or not myRoot or not targetRoot or not humanoid then return end
 
 	humanoid.PlatformStand = true
 	if humanoid.Health < humanoid.MaxHealth then
 		humanoid.Health = humanoid.MaxHealth
 	end
 
-	myRoot.Anchored = true
-
-	-- Uses the dynamic followOffset now
 	local targetCFrame = targetRoot.CFrame * CFrame.new(followOffset)
 
-	pcall(function()
-		myCharacter:PivotTo(targetCFrame)
-	end)
-
-	myRoot.CFrame = targetCFrame
-	myRoot.AssemblyLinearVelocity = Vector3.zero
-	myRoot.AssemblyAngularVelocity = Vector3.zero
+	if isFlinging then
+		-- ULTIMATE FLING LOGIC:
+		-- 1. Unanchor our character so physics momentum can transfer
+		myRoot.Anchored = false
+		
+		-- 2. Teleport inside them
+		pcall(function()
+			myCharacter:PivotTo(targetCFrame)
+		end)
+		
+		-- 3. Apply insane velocity to OURSELVES. 
+		-- When we collide with them at these speeds, the engine yeets them into space.
+		myRoot.AssemblyLinearVelocity = Vector3.new(0, 10000, 0)
+		myRoot.AssemblyAngularVelocity = Vector3.new(
+			math.random(-100000, 100000), 
+			math.random(-100000, 100000), 
+			math.random(-100000, 100000)
+		)
+	else
+		-- Normal follow logic: Stay anchored so we aren't affected by physics
+		myRoot.Anchored = true
+		
+		pcall(function()
+			myCharacter:PivotTo(targetCFrame)
+		end)
+		
+		myRoot.AssemblyLinearVelocity = Vector3.zero
+		myRoot.AssemblyAngularVelocity = Vector3.zero
+	end
 end))
 
 track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed and input.UserInputType == Enum.UserInputType.MouseButton1 then
-		return
-	end
-
+	if gameProcessed and input.UserInputType == Enum.UserInputType.MouseButton1 then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		handleClick()
 	elseif input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
@@ -738,23 +578,16 @@ track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end))
 
 track(Players.PlayerRemoving:Connect(function(player)
-	if hoverTarget == player then
-		setHoverHighlight(nil)
-	end
+	if hoverTarget == player then setHoverHighlight(nil) end
 	if followTarget == player then
 		stopFollowing()
 		print("[ClickFollow] Target left the game")
 	end
 end))
 
-track(localPlayer.CharacterAdded:Connect(function()
-	stopFollowing()
-end))
+track(localPlayer.CharacterAdded:Connect(function() stopFollowing() end))
 
-for _, player in Players:GetPlayers() do
-	hookCharacter(player)
-end
-
+for _, player in Players:GetPlayers() do hookCharacter(player) end
 track(Players.PlayerAdded:Connect(hookCharacter))
 
 _G.ClickFollowCleanup = function()
@@ -762,11 +595,9 @@ _G.ClickFollowCleanup = function()
 		connection:Disconnect()
 	end
 	table.clear(connections)
-
 	stopFollowing()
 	setHoverHighlight(nil)
 	destroyMenu()
-
 	_G.ClickFollowCleanup = nil
 	print("[ClickFollow] Unloaded")
 end
