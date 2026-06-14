@@ -423,17 +423,7 @@ local function setInvincible(enabled)
 	end))
 end
 
-local function restoreMovement()
-	local character = getCharacter(localPlayer)
-	local root = getRootPart(character)
-	local humanoid = getHumanoid(character)
-
-	if character then showCharacter(character) end
-
-	if humanoid then humanoid.PlatformStand = false end
-end
-
--- Implemented stopFollowing
+-- Implemented stopFollowing safely
 stopFollowing = function()
 	local wasFollowing = followTarget ~= nil
 
@@ -445,38 +435,55 @@ stopFollowing = function()
 
 	local character = getCharacter(localPlayer)
 	local root = getRootPart(character)
+	local humanoid = getHumanoid(character)
 
-	-- KILL MOMENTUM INSTANTLY BEFORE DOING ANYTHING ELSE
+	if humanoid then 
+		humanoid.PlatformStand = false 
+	end
+
+	-- KILL MOMENTUM INSTANTLY BEFORE TELEPORTING
 	if root then
 		root.Anchored = true
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 	end
-	
-	restoreMovement()
 
 	-- Teleport back to surface safely
 	if wasFollowing and originalCFrame then
-		if character then
-			-- Wait one tick to ensure physics engine registered the anchor
-			task.wait() 
+		-- Give the server a fraction of a second to register the 0 velocity and anchor
+		task.wait(0.1) 
+		
+		if character and root then
 			character:PivotTo(originalCFrame + Vector3.new(0, 3, 0))
 			
-			if root then
-				-- Double check the velocity is dead
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
-				-- Restore the anchor state back to what it was
-				if savedAnchored ~= nil then
-					root.Anchored = savedAnchored
-					savedAnchored = nil
-				else
-					root.Anchored = false
-				end
+			-- Double check the velocity is dead after the teleport
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			
+			task.wait(0.05) -- Wait one more tick before letting go
+			
+			-- Restore the anchor state back to what it was
+			if savedAnchored ~= nil then
+				root.Anchored = savedAnchored
+				savedAnchored = nil
+			else
+				root.Anchored = false
 			end
 		end
 		originalCFrame = nil
+	else
+		-- If we weren't following, just unanchor normally
+		if root then
+			if savedAnchored ~= nil then
+				root.Anchored = savedAnchored
+				savedAnchored = nil
+			else
+				root.Anchored = false
+			end
+		end
 	end
+	
+	if character then showCharacter(character) end
 end
 
 local function startFollowing(player)
@@ -491,8 +498,7 @@ local function startFollowing(player)
 	end
 
 	if followTarget then
-		restoreMovement()
-		setInvincible(false)
+		stopFollowing()
 	end
 
 	isFlinging = false
@@ -555,7 +561,8 @@ track(RunService.RenderStepped:Connect(function()
 	end
 end))
 
-track(RunService.Heartbeat:Connect(function()
+-- CHANGED TO STEPPED: This runs BEFORE physics calculations, forcing the engine to register the hit
+track(RunService.Stepped:Connect(function()
 	if not followTarget then return end
 
 	local myCharacter = getCharacter(localPlayer)
@@ -572,32 +579,24 @@ track(RunService.Heartbeat:Connect(function()
 	end
 
 	if isFlinging then
-		-- ACTIVE FLING PHYSICS
 		myRoot.Anchored = false
 
-		-- Notice I removed the CanCollide = false loop. 
-		-- Your physical limbs MUST be solid to hit them!
+		-- Add a tiny bit of random offset so your spinning limbs intersect perfectly
+		local offset = Vector3.new(
+			math.random(-5, 5) * 0.1,
+			math.random(-5, 5) * 0.1,
+			math.random(-5, 5) * 0.1
+		)
 
-		-- High-speed mathematical orbit (Tight Figure-8 Sphere)
-		local t = tick() * 30 -- Speed multiplier
-		local radius = 1.5    -- Distance from center of target
+		myRoot.CFrame = targetRoot.CFrame * CFrame.new(offset)
 		
-		local x = math.sin(t) * radius
-		local y = math.cos(t * 1.5) * radius 
-		local z = math.cos(t) * radius
-
-		-- Teleport through their body in the pattern shape
-		myRoot.CFrame = targetRoot.CFrame * CFrame.new(x, y, z)
-		
-		-- Force massive velocity randomly in all directions to act as the kinetic payload
-		local force = 25000
-		myRoot.AssemblyLinearVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
-		myRoot.AssemblyAngularVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
+		-- Give massive rotational and linear force
+		local flingPower = 50000
+		myRoot.AssemblyLinearVelocity = Vector3.new(0, flingPower, 0)
+		myRoot.AssemblyAngularVelocity = Vector3.new(flingPower, flingPower, flingPower)
 	else
-		-- PASSIVE FOLLOW UNDERGROUND
 		myRoot.Anchored = true
 		myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
-		
 		myRoot.AssemblyLinearVelocity = Vector3.zero
 		myRoot.AssemblyAngularVelocity = Vector3.zero
 	end
