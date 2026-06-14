@@ -453,12 +453,6 @@ stopFollowing = function()
 
 	local character = getCharacter(localPlayer)
 	local root = getRootPart(character)
-	
-	-- Destroy the physics movers we used to fling
-	if root then
-		if root:FindFirstChild("FlingSpin") then root.FlingSpin:Destroy() end
-		if root:FindFirstChild("FlingStay") then root.FlingStay:Destroy() end
-	end
 
 	-- Teleport back to surface if we were attached to someone
 	if wasFollowing and originalCFrame then
@@ -566,44 +560,45 @@ track(RunService.Heartbeat:Connect(function()
 	end
 
 	if isFlinging then
-		-- ACTIVE FLING PHYSICS: We use physics constraints to become an unstoppable spinning blender.
+		-- PATTERN FLING PHYSICS
 		myRoot.Anchored = false
 		
-		-- Spins you violently
-		local spin = myRoot:FindFirstChild("FlingSpin")
-		if not spin then
-			spin = Instance.new("BodyAngularVelocity")
-			spin.Name = "FlingSpin"
-			spin.AngularVelocity = Vector3.new(0, 75000, 0)
-			spin.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-			spin.P = 5000
-			spin.Parent = myRoot
-		end
-		
-		-- Keeps you completely immovable against pushback force so 100% goes into the target
-		local stay = myRoot:FindFirstChild("FlingStay")
-		if not stay then
-			stay = Instance.new("BodyVelocity")
-			stay.Name = "FlingStay"
-			stay.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			stay.Velocity = Vector3.zero
-			stay.Parent = myRoot
+		-- Noclip everything else so we don't trip on the map while zooming
+		for _, part in myCharacter:GetDescendants() do
+			if part:IsA("BasePart") and part ~= myRoot then
+				part.CanCollide = false
+			end
 		end
 
-		-- Teleport directly onto them to trigger the violent collision resolution
-		myRoot.CFrame = targetRoot.CFrame
-		myRoot.AssemblyLinearVelocity = Vector3.zero
-		myRoot.AssemblyAngularVelocity = Vector3.new(0, 75000, 0)
+		-- Calculate high-speed mathematical pattern (Tight Figure-8 Sphere)
+		local t = tick() * 45 -- Speed multiplier
+		local radius = 1.2    -- Distance from center of target
+		
+		local x = math.sin(t) * radius
+		local y = math.cos(t * 1.5) * radius 
+		local z = math.cos(t) * radius
+
+		-- Add randomized jitter to make the hits unpredictable
+		local jitter = Vector3.new(
+			math.random(-2, 2) * 0.1,
+			math.random(-2, 2) * 0.1,
+			math.random(-2, 2) * 0.1
+		)
+
+		-- Teleport through their body in the pattern shape
+		myRoot.CFrame = targetRoot.CFrame * CFrame.new(x, y, z) + jitter
+		
+		-- Force maximum velocity randomly in all directions
+		local force = 50000
+		myRoot.Velocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
+		myRoot.RotVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
 	else
 		-- PASSIVE FOLLOW UNDERGROUND
-		if myRoot:FindFirstChild("FlingSpin") then myRoot.FlingSpin:Destroy() end
-		if myRoot:FindFirstChild("FlingStay") then myRoot.FlingStay:Destroy() end
-
 		myRoot.Anchored = true
 		myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
 		
-		myRoot.AssemblyLinearVelocity = Vector3.zero
-		myRoot.AssemblyAngularVelocity = Vector3.zero
+		myRoot.Velocity = Vector3.zero
+		myRoot.RotVelocity = Vector3.zero
 	end
 end))
 
