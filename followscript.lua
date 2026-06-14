@@ -25,7 +25,10 @@ local invincibleConnections = {}
 local savedAnchored = nil
 local savedTransparency = {}
 local lastClickTime = 0
-local isFlinging = false -- NEW: Tracks if we are currently flinging
+local isFlinging = false
+
+-- NEW: Stores where you were before you attached
+local originalCFrame = nil 
 
 local screenGui = nil
 local menuFrame = nil
@@ -243,6 +246,9 @@ local function makeDraggable(frame, handle)
 	end))
 end
 
+-- Forward declaration so flingPlayer can call it
+local stopFollowing
+
 local function flingPlayer(player)
 	if isFlinging then return end
 	
@@ -254,11 +260,11 @@ local function flingPlayer(player)
 	followOffset = Vector3.zero
 	print("[ClickFollow] Flinging:", player.Name)
 
-	-- Wait 5 seconds instead of 0.25 so you fly with them
+	-- Wait 5 seconds, then stop following entirely and teleport back
 	task.delay(5, function()
 		if isFlinging then
-			isFlinging = false
-			followOffset = Vector3.new(0, -7, 0)
+			stopFollowing()
+			print("[ClickFollow] Fling finished, returned to start.")
 		end
 	end)
 end
@@ -439,7 +445,10 @@ local function restoreMovement()
 	if humanoid then humanoid.PlatformStand = false end
 end
 
-local function stopFollowing()
+-- Implemented definition for stopFollowing
+stopFollowing = function()
+	local wasFollowing = followTarget ~= nil
+
 	followTarget = nil
 	isFlinging = false
 	followOffset = Vector3.new(0, -7, 0)
@@ -447,10 +456,29 @@ local function stopFollowing()
 	setInvincible(false)
 	hideMenu()
 	restoreMovement()
+
+	-- Teleport back to surface if we were attached to someone
+	if wasFollowing and originalCFrame then
+		local character = getCharacter(localPlayer)
+		if character then
+			-- Adding 3 studs to the Y axis to ensure we don't clip through the floor
+			character:PivotTo(originalCFrame + Vector3.new(0, 3, 0))
+		end
+		originalCFrame = nil
+	end
 end
 
 local function startFollowing(player)
 	if followTarget == player then return end
+
+	-- Record starting CFrame before we attach to anyone
+	if not followTarget then
+		local char = getCharacter(localPlayer)
+		local root = getRootPart(char)
+		if root then
+			originalCFrame = root.CFrame
+		end
+	end
 
 	if followTarget then
 		restoreMovement()
@@ -538,17 +566,10 @@ track(RunService.Heartbeat:Connect(function()
 	local targetCFrame = targetRoot.CFrame * CFrame.new(followOffset)
 
 	if isFlinging then
-		-- ULTIMATE FLING LOGIC:
-		-- 1. Unanchor our character so physics momentum can transfer
 		myRoot.Anchored = false
-		
-		-- 2. Teleport inside them
 		pcall(function()
 			myCharacter:PivotTo(targetCFrame)
 		end)
-		
-		-- 3. Apply insane velocity to OURSELVES. 
-		-- When we collide with them at these speeds, the engine yeets them into space.
 		myRoot.AssemblyLinearVelocity = Vector3.new(0, 10000, 0)
 		myRoot.AssemblyAngularVelocity = Vector3.new(
 			math.random(-100000, 100000), 
@@ -556,13 +577,10 @@ track(RunService.Heartbeat:Connect(function()
 			math.random(-100000, 100000)
 		)
 	else
-		-- Normal follow logic: Stay anchored so we aren't affected by physics
 		myRoot.Anchored = true
-		
 		pcall(function()
 			myCharacter:PivotTo(targetCFrame)
 		end)
-		
 		myRoot.AssemblyLinearVelocity = Vector3.zero
 		myRoot.AssemblyAngularVelocity = Vector3.zero
 	end
