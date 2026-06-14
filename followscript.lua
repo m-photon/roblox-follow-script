@@ -9,7 +9,7 @@ local RunService = game:GetService("RunService")
 local localPlayer = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-local FOLLOW_OFFSET = Vector3.new(0, -2, 0)
+local FOLLOW_OFFSET = Vector3.new(0, -7, 0) -- buried underground so others can't see you
 local HOVER_RADIUS = 7
 local RAY_DISTANCE = 2000
 local CLICK_COOLDOWN = 0.2
@@ -20,6 +20,7 @@ local hoverHighlight = nil
 local followHighlight = nil
 local connections = {}
 local savedAnchored = nil
+local savedTransparency = {}
 local lastClickTime = 0
 
 local function track(connection)
@@ -209,10 +210,35 @@ local function setFollowHighlight(player)
 	followHighlight.Parent = character
 end
 
+local function hideCharacter(character)
+	for _, descendant in character:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			savedTransparency[descendant] = descendant.Transparency
+			descendant.Transparency = 1
+		elseif descendant:IsA("Decal") then
+			savedTransparency[descendant] = descendant.Transparency
+			descendant.Transparency = 1
+		end
+	end
+end
+
+local function showCharacter(character)
+	for instance, transparency in savedTransparency do
+		if instance and instance.Parent then
+			instance.Transparency = transparency
+		end
+	end
+	table.clear(savedTransparency)
+end
+
 local function restoreMovement()
 	local character = getCharacter(localPlayer)
 	local root = getRootPart(character)
 	local humanoid = getHumanoid(character)
+
+	if character then
+		showCharacter(character)
+	end
 
 	if root and savedAnchored ~= nil then
 		root.Anchored = savedAnchored
@@ -233,15 +259,27 @@ local function stopFollowing()
 end
 
 local function startFollowing(player)
+	if followTarget == player then
+		return
+	end
+
+	if followTarget then
+		restoreMovement()
+	end
+
 	followTarget = player
 	setFollowHighlight(player)
 
-	local root = getRootPart(getCharacter(localPlayer))
+	local character = getCharacter(localPlayer)
+	local root = getRootPart(character)
 	if root then
 		savedAnchored = root.Anchored
 	end
+	if character then
+		hideCharacter(character)
+	end
 
-	print("[ClickFollow] Following:", player.Name)
+	print("[ClickFollow] Following:", player.Name, "| Press Alt to let go")
 end
 
 local function handleClick()
@@ -251,18 +289,18 @@ local function handleClick()
 	lastClickTime = tick()
 
 	local clickedPlayer = getPlayerUnderMouse()
-
 	if clickedPlayer then
-		if followTarget == clickedPlayer then
-			stopFollowing()
-			print("[ClickFollow] Stopped following")
-		else
-			startFollowing(clickedPlayer)
-		end
-	else
-		stopFollowing()
-		print("[ClickFollow] Stopped following")
+		startFollowing(clickedPlayer)
 	end
+end
+
+local function handleRelease()
+	if not followTarget then
+		return
+	end
+
+	stopFollowing()
+	print("[ClickFollow] Let go (Alt)")
 end
 
 local function hookCharacter(player)
@@ -335,11 +373,11 @@ track(RunService.Heartbeat:Connect(function()
 end))
 
 track(UserInputService.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-		return
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		handleClick()
+	elseif input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
+		handleRelease()
 	end
-
-	handleClick()
 end))
 
 track(Players.PlayerRemoving:Connect(function(player)
@@ -376,5 +414,5 @@ _G.ClickFollowCleanup = function()
 end
 
 print("[ClickFollow] Loaded")
-print("[ClickFollow] Hover = blue highlight | Follow target = red highlight")
-print("[ClickFollow] Left click player to follow 2 studs below them")
+print("[ClickFollow] Hover = blue | Following = red | Alt = let go")
+print("[ClickFollow] Left click a player to follow underground beneath them")
