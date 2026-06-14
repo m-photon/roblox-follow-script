@@ -20,11 +20,11 @@ local hoverHighlight = nil
 local followHighlight = nil
 local connections = {}
 local invincibleConnections = {}
-local savedAnchored = nil
 local savedTransparency = {}
 local lastClickTime = 0
 local isFlinging = false
 local originalCFrame = nil 
+local originalFPDH = workspace.FallenPartsDestroyHeight
 
 local screenGui = nil
 local menuFrame = nil
@@ -245,21 +245,158 @@ end
 -- Forward declaration
 local stopFollowing
 
-local function flingPlayer(player)
+-- EXACT REFERENCE SCRIPT FLING LOGIC
+local function flingPlayer(TargetPlayer)
 	if isFlinging then return end
 	
-	local character = getCharacter(player)
-	local root = getRootPart(character)
-	if not character or not root then return end
-
+	local Character = localPlayer.Character
+	local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+	local RootPart = Humanoid and Humanoid.RootPart
+	local TCharacter = TargetPlayer.Character
+	if not TCharacter then return end
+	
 	isFlinging = true
-	print("[ClickFollow] Flinging:", player.Name)
+	print("[ClickFollow] Flinging:", TargetPlayer.Name)
 
-	-- 5 second timer to stop the fling and teleport back
-	task.delay(5, function()
-		if isFlinging then
-			stopFollowing()
-			print("[ClickFollow] Fling finished, returned to start.")
+	task.spawn(function()
+		local THumanoid
+		local TRootPart
+		local THead
+		local Accessory
+		local Handle
+		
+		if TCharacter:FindFirstChildOfClass("Humanoid") then
+			THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
+		end
+		if THumanoid and THumanoid.RootPart then
+			TRootPart = THumanoid.RootPart
+		end
+		if TCharacter:FindFirstChild("Head") then
+			THead = TCharacter.Head
+		end
+		if TCharacter:FindFirstChildOfClass("Accessory") then
+			Accessory = TCharacter:FindFirstChildOfClass("Accessory")
+		end
+		if Accessory and Accessory:FindFirstChild("Handle") then
+			Handle = Accessory.Handle
+		end
+		
+		if Character and Humanoid and RootPart then
+			-- Uses the original surface CFrame recorded when we clicked them
+			local oldPos = originalCFrame or RootPart.CFrame
+			
+			if THumanoid and THumanoid.Sit then
+				print("[ClickFollow] Error:", TargetPlayer.Name, "is sitting")
+				isFlinging = false
+				return
+			end
+			
+			if THead then
+				workspace.CurrentCamera.CameraSubject = THead
+			elseif Handle then
+				workspace.CurrentCamera.CameraSubject = Handle
+			elseif THumanoid and TRootPart then
+				workspace.CurrentCamera.CameraSubject = THumanoid
+			end
+			
+			if not TCharacter:FindFirstChildWhichIsA("BasePart") then
+				isFlinging = false
+				return
+			end
+			
+			local FPos = function(BasePart, Pos, Ang)
+				RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+				Character:SetPrimaryPartCFrame(CFrame.new(BasePart.Position) * Pos * Ang)
+				RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+				RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+			end
+			
+			local SFBasePart = function(BasePart)
+				local TimeToWait = 5 -- Set to 5 seconds
+				local Time = tick()
+				local Angle = 0
+				repeat
+					if RootPart and THumanoid then
+						if BasePart.Velocity.Magnitude < 50 then
+							Angle = Angle + 100
+							FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle),0 ,0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0))
+							task.wait()
+						else
+							FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, -THumanoid.WalkSpeed), CFrame.Angles(0, 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+							task.wait()
+							
+							FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+							task.wait()
+							FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+							task.wait()
+						end
+					end
+				until Time + TimeToWait < tick() or not isFlinging
+			end
+			
+			workspace.FallenPartsDestroyHeight = 0/0
+			
+			local BV = Instance.new("BodyVelocity")
+			BV.Parent = RootPart
+			BV.Velocity = Vector3.new(0, 0, 0)
+			BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+			
+			Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+			
+			if TRootPart then
+				SFBasePart(TRootPart)
+			elseif THead then
+				SFBasePart(THead)
+			elseif Handle then
+				SFBasePart(Handle)
+			else
+				print("[ClickFollow] Error:", TargetPlayer.Name, "has no valid parts")
+			end
+			
+			BV:Destroy()
+			Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+			workspace.CurrentCamera.CameraSubject = Humanoid
+			
+			-- Reset character position
+			if oldPos then
+				repeat
+					RootPart.CFrame = oldPos * CFrame.new(0, .5, 0)
+					Character:SetPrimaryPartCFrame(oldPos * CFrame.new(0, .5, 0))
+					Humanoid:ChangeState("GettingUp")
+					for _, part in pairs(Character:GetChildren()) do
+						if part:IsA("BasePart") then
+							part.Velocity, part.RotVelocity = Vector3.new(), Vector3.new()
+						end
+					end
+					task.wait()
+				until (RootPart.Position - oldPos.p).Magnitude < 25
+				workspace.FallenPartsDestroyHeight = originalFPDH
+			end
+			
+			-- End fling sequence
+			isFlinging = false
+			stopFollowing(true) -- True tells stopFollowing not to double-teleport us
+		else
+			print("[ClickFollow] Error: Your character is not ready")
+			isFlinging = false
 		end
 	end)
 end
@@ -423,8 +560,7 @@ local function setInvincible(enabled)
 	end))
 end
 
--- Implemented stopFollowing safely
-stopFollowing = function()
+stopFollowing = function(skipTeleport)
 	local wasFollowing = followTarget ~= nil
 
 	followTarget = nil
@@ -440,50 +576,24 @@ stopFollowing = function()
 	if humanoid then 
 		humanoid.PlatformStand = false 
 	end
-
-	-- KILL MOMENTUM INSTANTLY BEFORE TELEPORTING
 	if root then
-		root.Anchored = true
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
+		root.Anchored = false
+	end
+	if character then 
+		showCharacter(character) 
 	end
 
-	-- Teleport back to surface safely
-	if wasFollowing and originalCFrame then
-		-- Give the server a fraction of a second to register the 0 velocity and anchor
-		task.wait(0.1) 
-		
+	-- Only teleport back manually if the Fling function didn't already handle the reset
+	if not skipTeleport and wasFollowing and originalCFrame then
 		if character and root then
 			character:PivotTo(originalCFrame + Vector3.new(0, 3, 0))
-			
-			-- Double check the velocity is dead after the teleport
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
-			
-			task.wait(0.05) -- Wait one more tick before letting go
-			
-			-- Restore the anchor state back to what it was
-			if savedAnchored ~= nil then
-				root.Anchored = savedAnchored
-				savedAnchored = nil
-			else
-				root.Anchored = false
-			end
 		end
 		originalCFrame = nil
-	else
-		-- If we weren't following, just unanchor normally
-		if root then
-			if savedAnchored ~= nil then
-				root.Anchored = savedAnchored
-				savedAnchored = nil
-			else
-				root.Anchored = false
-			end
-		end
+	elseif skipTeleport then
+		originalCFrame = nil
 	end
-	
-	if character then showCharacter(character) end
 end
 
 local function startFollowing(player)
@@ -498,7 +608,7 @@ local function startFollowing(player)
 	end
 
 	if followTarget then
-		stopFollowing()
+		stopFollowing(false)
 	end
 
 	isFlinging = false
@@ -508,8 +618,6 @@ local function startFollowing(player)
 	showMenu(player)
 
 	local character = getCharacter(localPlayer)
-	local root = getRootPart(character)
-	if root then savedAnchored = root.Anchored end
 	if character then hideCharacter(character) end
 
 	print("[ClickFollow] Following:", player.Name, "| Alt = let go")
@@ -528,7 +636,9 @@ end
 
 local function handleRelease()
 	if not followTarget then return end
-	stopFollowing()
+	-- Set isFlinging to false to instantly break the skidfling loop if it's running
+	isFlinging = false 
+	stopFollowing(false)
 	print("[ClickFollow] Let go (Alt)")
 end
 
@@ -537,7 +647,8 @@ local function hookCharacter(player)
 		if parent == nil then
 			if hoverTarget == player then setHoverHighlight(nil) end
 			if followTarget == player then
-				stopFollowing()
+				isFlinging = false
+				stopFollowing(false)
 				print("[ClickFollow] Target left or died")
 			end
 		end
@@ -561,9 +672,9 @@ track(RunService.RenderStepped:Connect(function()
 	end
 end))
 
--- CHANGED TO STEPPED: This runs BEFORE physics calculations, forcing the engine to register the hit
-track(RunService.Stepped:Connect(function()
-	if not followTarget then return end
+-- Underground follow loop. Completely ignores you while isFlinging is true.
+track(RunService.Heartbeat:Connect(function()
+	if not followTarget or isFlinging then return end
 
 	local myCharacter = getCharacter(localPlayer)
 	local targetCharacter = getCharacter(followTarget)
@@ -578,28 +689,10 @@ track(RunService.Stepped:Connect(function()
 		humanoid.Health = humanoid.MaxHealth
 	end
 
-	if isFlinging then
-		myRoot.Anchored = false
-
-		-- Add a tiny bit of random offset so your spinning limbs intersect perfectly
-		local offset = Vector3.new(
-			math.random(-5, 5) * 0.1,
-			math.random(-5, 5) * 0.1,
-			math.random(-5, 5) * 0.1
-		)
-
-		myRoot.CFrame = targetRoot.CFrame * CFrame.new(offset)
-		
-		-- Give massive rotational and linear force
-		local flingPower = 50000
-		myRoot.AssemblyLinearVelocity = Vector3.new(0, flingPower, 0)
-		myRoot.AssemblyAngularVelocity = Vector3.new(flingPower, flingPower, flingPower)
-	else
-		myRoot.Anchored = true
-		myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
-		myRoot.AssemblyLinearVelocity = Vector3.zero
-		myRoot.AssemblyAngularVelocity = Vector3.zero
-	end
+	myRoot.Anchored = true
+	myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
+	myRoot.AssemblyLinearVelocity = Vector3.zero
+	myRoot.AssemblyAngularVelocity = Vector3.zero
 end))
 
 track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -614,12 +707,13 @@ end))
 track(Players.PlayerRemoving:Connect(function(player)
 	if hoverTarget == player then setHoverHighlight(nil) end
 	if followTarget == player then
-		stopFollowing()
+		isFlinging = false
+		stopFollowing(false)
 		print("[ClickFollow] Target left the game")
 	end
 end))
 
-track(localPlayer.CharacterAdded:Connect(function() stopFollowing() end))
+track(localPlayer.CharacterAdded:Connect(function() stopFollowing(false) end))
 
 for _, player in Players:GetPlayers() do hookCharacter(player) end
 track(Players.PlayerAdded:Connect(hookCharacter))
@@ -629,10 +723,12 @@ _G.ClickFollowCleanup = function()
 		connection:Disconnect()
 	end
 	table.clear(connections)
-	stopFollowing()
+	isFlinging = false
+	stopFollowing(false)
 	setHoverHighlight(nil)
 	destroyMenu()
 	_G.ClickFollowCleanup = nil
+	workspace.FallenPartsDestroyHeight = originalFPDH
 	print("[ClickFollow] Unloaded")
 end
 
