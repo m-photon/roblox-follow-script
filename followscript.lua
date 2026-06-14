@@ -6,12 +6,10 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
-local Debris = game:GetService("Debris")
 
 local localPlayer = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-local followOffset = Vector3.new(0, -7, 0)
 local HOVER_RADIUS = 7
 local RAY_DISTANCE = 2000
 local CLICK_COOLDOWN = 0.2
@@ -26,8 +24,6 @@ local savedAnchored = nil
 local savedTransparency = {}
 local lastClickTime = 0
 local isFlinging = false
-
--- NEW: Stores where you were before you attached
 local originalCFrame = nil 
 
 local screenGui = nil
@@ -246,7 +242,7 @@ local function makeDraggable(frame, handle)
 	end))
 end
 
--- Forward declaration so flingPlayer can call it
+-- Forward declaration
 local stopFollowing
 
 local function flingPlayer(player)
@@ -257,10 +253,9 @@ local function flingPlayer(player)
 	if not character or not root then return end
 
 	isFlinging = true
-	followOffset = Vector3.zero
 	print("[ClickFollow] Flinging:", player.Name)
 
-	-- Wait 5 seconds, then stop following entirely and teleport back
+	-- 5 second timer to stop the fling and teleport back
 	task.delay(5, function()
 		if isFlinging then
 			stopFollowing()
@@ -445,24 +440,34 @@ local function restoreMovement()
 	if humanoid then humanoid.PlatformStand = false end
 end
 
--- Implemented definition for stopFollowing
+-- Implemented stopFollowing
 stopFollowing = function()
 	local wasFollowing = followTarget ~= nil
 
 	followTarget = nil
 	isFlinging = false
-	followOffset = Vector3.new(0, -7, 0)
 	setFollowHighlight(nil)
 	setInvincible(false)
 	hideMenu()
 	restoreMovement()
 
+	local character = getCharacter(localPlayer)
+	local root = getRootPart(character)
+	
+	-- Destroy the physics movers we used to fling
+	if root then
+		if root:FindFirstChild("FlingSpin") then root.FlingSpin:Destroy() end
+		if root:FindFirstChild("FlingStay") then root.FlingStay:Destroy() end
+	end
+
 	-- Teleport back to surface if we were attached to someone
 	if wasFollowing and originalCFrame then
-		local character = getCharacter(localPlayer)
 		if character then
-			-- Adding 3 studs to the Y axis to ensure we don't clip through the floor
 			character:PivotTo(originalCFrame + Vector3.new(0, 3, 0))
+			if root then
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
 		end
 		originalCFrame = nil
 	end
@@ -471,7 +476,6 @@ end
 local function startFollowing(player)
 	if followTarget == player then return end
 
-	-- Record starting CFrame before we attach to anyone
 	if not followTarget then
 		local char = getCharacter(localPlayer)
 		local root = getRootPart(char)
@@ -486,8 +490,6 @@ local function startFollowing(player)
 	end
 
 	isFlinging = false
-	followOffset = Vector3.new(0, -7, 0)
-	
 	followTarget = player
 	setFollowHighlight(player)
 	setInvincible(true)
@@ -563,24 +565,43 @@ track(RunService.Heartbeat:Connect(function()
 		humanoid.Health = humanoid.MaxHealth
 	end
 
-	local targetCFrame = targetRoot.CFrame * CFrame.new(followOffset)
-
 	if isFlinging then
+		-- ACTIVE FLING PHYSICS: We use physics constraints to become an unstoppable spinning blender.
 		myRoot.Anchored = false
-		pcall(function()
-			myCharacter:PivotTo(targetCFrame)
-		end)
-		myRoot.AssemblyLinearVelocity = Vector3.new(0, 10000, 0)
-		myRoot.AssemblyAngularVelocity = Vector3.new(
-			math.random(-100000, 100000), 
-			math.random(-100000, 100000), 
-			math.random(-100000, 100000)
-		)
+		
+		-- Spins you violently
+		local spin = myRoot:FindFirstChild("FlingSpin")
+		if not spin then
+			spin = Instance.new("BodyAngularVelocity")
+			spin.Name = "FlingSpin"
+			spin.AngularVelocity = Vector3.new(0, 75000, 0)
+			spin.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+			spin.P = 5000
+			spin.Parent = myRoot
+		end
+		
+		-- Keeps you completely immovable against pushback force so 100% goes into the target
+		local stay = myRoot:FindFirstChild("FlingStay")
+		if not stay then
+			stay = Instance.new("BodyVelocity")
+			stay.Name = "FlingStay"
+			stay.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			stay.Velocity = Vector3.zero
+			stay.Parent = myRoot
+		end
+
+		-- Teleport directly onto them to trigger the violent collision resolution
+		myRoot.CFrame = targetRoot.CFrame
+		myRoot.AssemblyLinearVelocity = Vector3.zero
+		myRoot.AssemblyAngularVelocity = Vector3.new(0, 75000, 0)
 	else
+		-- PASSIVE FOLLOW UNDERGROUND
+		if myRoot:FindFirstChild("FlingSpin") then myRoot.FlingSpin:Destroy() end
+		if myRoot:FindFirstChild("FlingStay") then myRoot.FlingStay:Destroy() end
+
 		myRoot.Anchored = true
-		pcall(function()
-			myCharacter:PivotTo(targetCFrame)
-		end)
+		myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
+		
 		myRoot.AssemblyLinearVelocity = Vector3.zero
 		myRoot.AssemblyAngularVelocity = Vector3.zero
 	end
