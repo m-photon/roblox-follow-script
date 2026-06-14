@@ -430,13 +430,6 @@ local function restoreMovement()
 
 	if character then showCharacter(character) end
 
-	if root and savedAnchored ~= nil then
-		root.Anchored = savedAnchored
-		savedAnchored = nil
-	elseif root then
-		root.Anchored = false
-	end
-
 	if humanoid then humanoid.PlatformStand = false end
 end
 
@@ -449,18 +442,37 @@ stopFollowing = function()
 	setFollowHighlight(nil)
 	setInvincible(false)
 	hideMenu()
-	restoreMovement()
 
 	local character = getCharacter(localPlayer)
 	local root = getRootPart(character)
 
-	-- Teleport back to surface if we were attached to someone
+	-- KILL MOMENTUM INSTANTLY BEFORE DOING ANYTHING ELSE
+	if root then
+		root.Anchored = true
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+	
+	restoreMovement()
+
+	-- Teleport back to surface safely
 	if wasFollowing and originalCFrame then
 		if character then
+			-- Wait one tick to ensure physics engine registered the anchor
+			task.wait() 
 			character:PivotTo(originalCFrame + Vector3.new(0, 3, 0))
+			
 			if root then
+				-- Double check the velocity is dead
 				root.AssemblyLinearVelocity = Vector3.zero
 				root.AssemblyAngularVelocity = Vector3.zero
+				-- Restore the anchor state back to what it was
+				if savedAnchored ~= nil then
+					root.Anchored = savedAnchored
+					savedAnchored = nil
+				else
+					root.Anchored = false
+				end
 			end
 		end
 		originalCFrame = nil
@@ -560,45 +572,34 @@ track(RunService.Heartbeat:Connect(function()
 	end
 
 	if isFlinging then
-		-- PATTERN FLING PHYSICS
+		-- ACTIVE FLING PHYSICS
 		myRoot.Anchored = false
-		
-		-- Noclip everything else so we don't trip on the map while zooming
-		for _, part in myCharacter:GetDescendants() do
-			if part:IsA("BasePart") and part ~= myRoot then
-				part.CanCollide = false
-			end
-		end
 
-		-- Calculate high-speed mathematical pattern (Tight Figure-8 Sphere)
-		local t = tick() * 45 -- Speed multiplier
-		local radius = 1.2    -- Distance from center of target
+		-- Notice I removed the CanCollide = false loop. 
+		-- Your physical limbs MUST be solid to hit them!
+
+		-- High-speed mathematical orbit (Tight Figure-8 Sphere)
+		local t = tick() * 30 -- Speed multiplier
+		local radius = 1.5    -- Distance from center of target
 		
 		local x = math.sin(t) * radius
 		local y = math.cos(t * 1.5) * radius 
 		local z = math.cos(t) * radius
 
-		-- Add randomized jitter to make the hits unpredictable
-		local jitter = Vector3.new(
-			math.random(-2, 2) * 0.1,
-			math.random(-2, 2) * 0.1,
-			math.random(-2, 2) * 0.1
-		)
-
 		-- Teleport through their body in the pattern shape
-		myRoot.CFrame = targetRoot.CFrame * CFrame.new(x, y, z) + jitter
+		myRoot.CFrame = targetRoot.CFrame * CFrame.new(x, y, z)
 		
-		-- Force maximum velocity randomly in all directions
-		local force = 50000
-		myRoot.Velocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
-		myRoot.RotVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
+		-- Force massive velocity randomly in all directions to act as the kinetic payload
+		local force = 25000
+		myRoot.AssemblyLinearVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
+		myRoot.AssemblyAngularVelocity = Vector3.new(math.random(-force, force), math.random(-force, force), math.random(-force, force))
 	else
 		-- PASSIVE FOLLOW UNDERGROUND
 		myRoot.Anchored = true
 		myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -7, 0)
 		
-		myRoot.Velocity = Vector3.zero
-		myRoot.RotVelocity = Vector3.zero
+		myRoot.AssemblyLinearVelocity = Vector3.zero
+		myRoot.AssemblyAngularVelocity = Vector3.zero
 	end
 end))
 
