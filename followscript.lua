@@ -160,7 +160,7 @@ local function runFloat(target)
     end)
 end
 
--- PROCEDURAL JOHN DOE ENGINE
+-- PROCEDURAL CREEPY SLOUCH ENGINE
 local function toggleCreepyWalk()
     if creepyWalkActive then
         creepyWalkActive = false
@@ -169,7 +169,7 @@ local function toggleCreepyWalk()
     end
 
     creepyWalkActive = true
-    cacheJoints() -- Ensure joints are targeted correctly
+    cacheJoints()
     
     local timer = 0
     creepyWalkConnection = RunService.RenderStepped:Connect(function(dt)
@@ -178,55 +178,58 @@ local function toggleCreepyWalk()
             return
         end
 
-        -- Check if character is moving or stationary
         local isMoving = humanoid.MoveDirection.Magnitude > 0.1
-        local speedMultiplier = isMoving and 1.5 or 0.3
-        timer = timer + (dt * 5 * speedMultiplier)
+        timer = timer + (dt * (isMoving and 10 or 2)) -- Faster timer for walking, slow for idle
 
-        -- Base creepy configuration variables
-        local wave = math.sin(timer)
+        -- Calculate walk cycle variables
+        local walkSway = isMoving and math.sin(timer) or 0
+        local legCycle = isMoving and math.sin(timer) or 0
+        local breathe = math.sin(timer * 0.5)
 
         if joints.Type == "R15" or joints.Type == "R6" then
-            -- 1. Unnatural Head Snap
-            if joints.Neck and originalC0s.Neck then
-                -- Head snapped sideways and tilted slightly
-                joints.Neck.C0 = originalC0s.Neck * CFrame.Angles(math.rad(5 + wave * 2), math.rad(35), math.rad(15))
+            
+            -- 1. Forward Slouching Torso
+            if joints.Root and originalC0s.Root then
+                -- Slouch forward 15 degrees, with a very slight sway when moving
+                joints.Root.C0 = originalC0s.Root * CFrame.new(0, -0.2, 0) * CFrame.Angles(math.rad(15), 0, math.rad(walkSway * 3))
             end
 
-            -- 2. Stiff, hovering/dragging zombie legs
+            -- 2. Corrected Neck (Looking up through the brow + creepy tilt)
+            if joints.Neck and originalC0s.Neck then
+                -- Tilt back -15 degrees to counter the torso's forward slouch, plus a 10 degree sideways head tilt
+                joints.Neck.C0 = originalC0s.Neck * CFrame.Angles(math.rad(-15), 0, math.rad(10))
+            end
+
+            -- 3. Dead Right Arm (Hanging Straight Down)
+            if joints.RightArm and originalC0s.RightArm then
+                -- Counter the 15 degree torso lean by swinging the arm back -15 degrees so it hangs straight down
+                joints.RightArm.C0 = originalC0s.RightArm * CFrame.Angles(math.rad(-15), 0, math.rad(5))
+            end
+
+            -- 4. Normal Left Arm (Standard walk swing)
+            if joints.LeftArm and originalC0s.LeftArm then
+                if isMoving then
+                    -- Swing opposite to the right leg
+                    joints.LeftArm.C0 = originalC0s.LeftArm * CFrame.Angles(math.rad(walkSway * 25), 0, math.rad(-5))
+                else
+                    joints.LeftArm.C0 = originalC0s.LeftArm * CFrame.Angles(math.rad(5), 0, math.rad(-5))
+                end
+            end
+
+            -- 5. Normal Legs (Standard walk cycle)
             if joints.LeftLeg and originalC0s.LeftLeg then
                 if isMoving then
-                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(math.sin(timer * 0.8) * 15), 0, 0)
+                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(legCycle * -30), 0, 0)
                 else
-                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(10), 0, 0)
+                    joints.LeftLeg.C0 = originalC0s.LeftLeg
                 end
             end
 
             if joints.RightLeg and originalC0s.RightLeg then
                 if isMoving then
-                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(math.rad(math.sin(timer * 0.8 + math.pi) * 15), 0, 0)
+                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(math.rad(legCycle * 30), 0, 0)
                 else
-                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(math.rad(10), 0, 0)
-                end
-            end
-
-            -- 3. Dead, Dangling Arms
-            if joints.LeftArm and originalC0s.LeftArm then
-                -- Because the torso leans back (-25), the arms need to rotate forward (+25) to hang vertically
-                joints.LeftArm.C0 = originalC0s.LeftArm * CFrame.Angles(math.rad(25 + wave * 2), 0, math.rad(-5))
-            end
-
-            if joints.RightArm and originalC0s.RightArm then
-                joints.RightArm.C0 = originalC0s.RightArm * CFrame.Angles(math.rad(25 - wave * 2), 0, math.rad(5))
-            end
-            
-            -- 4. Torso leaning heavily BACKWARDS (The iconic pose)
-            if joints.Root and originalC0s.Root then
-                if isMoving then
-                    -- Leaning back, swaying slightly
-                    joints.Root.C0 = originalC0s.Root * CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-25), math.rad(wave * 5), 0)
-                else
-                    joints.Root.C0 = originalC0s.Root * CFrame.Angles(math.rad(-25), 0, 0)
+                    joints.RightLeg.C0 = originalC0s.RightLeg
                 end
             end
         end
@@ -387,7 +390,7 @@ floatBtn.MouseButton1Click:Connect(function()
     if selectedPart then runFloat(selectedPart) end
 end)
 
--- NEW: Procedural Animation Control Toggle Button
+-- Procedural Animation Control Toggle Button
 local animPackBtn = Instance.new("TextButton")
 animPackBtn.Size = UDim2.new(0, 130, 0, 30)
 animPackBtn.Position = UDim2.new(0, 175, 0, 135)
