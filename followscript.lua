@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 -- 1. Locate the Local Player and Character context cleanly
 local player = Players.LocalPlayer
 if not player then
-    player = Players:GetPlayers()
+    player = Players:GetPlayers()[1]
 end
 
 local camera = Workspace.CurrentCamera
@@ -160,7 +160,7 @@ local function runFloat(target)
     end)
 end
 
--- PROCEDURAL CREEPY LIMP ENGINE
+-- PROCEDURAL JOHN DOE ENGINE
 local function toggleCreepyWalk()
     if creepyWalkActive then
         creepyWalkActive = false
@@ -179,60 +179,54 @@ local function toggleCreepyWalk()
         end
 
         -- Check if character is moving or stationary
-        local isMoving = humanoid.MoveDirection.Magnitude > 0
+        local isMoving = humanoid.MoveDirection.Magnitude > 0.1
         local speedMultiplier = isMoving and 1.5 or 0.3
         timer = timer + (dt * 5 * speedMultiplier)
 
         -- Base creepy configuration variables
         local wave = math.sin(timer)
-        local absoluteWave = math.abs(math.sin(timer))
 
         if joints.Type == "R15" or joints.Type == "R6" then
-            -- 1. Unnatural Head Tilt
+            -- 1. Unnatural Head Snap
             if joints.Neck and originalC0s.Neck then
-                joints.Neck.C0 = originalC0s.Neck * CFrame.Angles(math.rad(12 + wave * 3), 0, math.rad(12))
+                -- Head snapped sideways and tilted slightly
+                joints.Neck.C0 = originalC0s.Neck * CFrame.Angles(math.rad(5 + wave * 2), math.rad(35), math.rad(15))
             end
 
-            -- 2. Asymmetric Limping Legs
+            -- 2. Stiff, hovering/dragging zombie legs
             if joints.LeftLeg and originalC0s.LeftLeg then
                 if isMoving then
-                    -- The left leg drops down heavily and drags behind (The Limp)
-                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.new(0, -absoluteWave * 0.4, -wave * 0.3) * CFrame.Angles(math.rad(-10 + wave * 20), 0, 0)
+                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(math.sin(timer * 0.8) * 15), 0, 0)
                 else
-                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(-5), 0, math.rad(-5))
+                    joints.LeftLeg.C0 = originalC0s.LeftLeg * CFrame.Angles(math.rad(10), 0, 0)
                 end
             end
 
             if joints.RightLeg and originalC0s.RightLeg then
                 if isMoving then
-                    -- Right leg functions with a faster, jerky recovery step to overcompensate
-                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.new(0, 0, wave * 0.5) * CFrame.Angles(math.rad(wave * -25), 0, 0)
+                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(math.rad(math.sin(timer * 0.8 + math.pi) * 15), 0, 0)
                 else
-                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(0, 0, math.rad(5))
+                    joints.RightLeg.C0 = originalC0s.RightLeg * CFrame.Angles(math.rad(10), 0, 0)
                 end
             end
 
-            -- 3. John Doe / Paralysed Arm Modification
+            -- 3. Dead, Dangling Arms
             if joints.LeftArm and originalC0s.LeftArm then
-                -- Forces the left arm completely straight down with a tiny twitch
-                joints.LeftArm.C0 = originalC0s.LeftArm * CFrame.Angles(math.rad(wave * 1.5), 0, math.rad(-5))
+                -- Because the torso leans back (-25), the arms need to rotate forward (+25) to hang vertically
+                joints.LeftArm.C0 = originalC0s.LeftArm * CFrame.Angles(math.rad(25 + wave * 2), 0, math.rad(-5))
             end
 
             if joints.RightArm and originalC0s.RightArm then
-                -- Right arm points stiffly forward and twitches like a zombie
-                if isMoving then
-                    joints.RightArm.C0 = originalC0s.RightArm * CFrame.Angles(math.rad(30 + wave * 10), 0, math.rad(10))
-                else
-                    joints.RightArm.C0 = originalC0s.RightArm * CFrame.Angles(math.rad(15), 0, math.rad(5))
-                end
+                joints.RightArm.C0 = originalC0s.RightArm * CFrame.Angles(math.rad(25 - wave * 2), 0, math.rad(5))
             end
             
-            -- 4. Torso slouching forward/downward during walking stride
+            -- 4. Torso leaning heavily BACKWARDS (The iconic pose)
             if joints.Root and originalC0s.Root then
                 if isMoving then
-                    joints.Root.C0 = originalC0s.Root * CFrame.new(0, -absoluteWave * 0.2, 0) * CFrame.Angles(math.rad(10), 0, 0)
+                    -- Leaning back, swaying slightly
+                    joints.Root.C0 = originalC0s.Root * CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-25), math.rad(wave * 5), 0)
                 else
-                    joints.Root.C0 = originalC0s.Root * CFrame.Angles(math.rad(5), 0, 0)
+                    joints.Root.C0 = originalC0s.Root * CFrame.Angles(math.rad(-25), 0, 0)
                 end
             end
         end
@@ -393,7 +387,7 @@ floatBtn.MouseButton1Click:Connect(function()
     if selectedPart then runFloat(selectedPart) end
 end)
 
--- Procedural Animation Control Toggle Button
+-- NEW: Procedural Animation Control Toggle Button
 local animPackBtn = Instance.new("TextButton")
 animPackBtn.Size = UDim2.new(0, 130, 0, 30)
 animPackBtn.Position = UDim2.new(0, 175, 0, 135)
